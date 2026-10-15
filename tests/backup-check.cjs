@@ -50,5 +50,11 @@ assert.equal(vm.runInContext("moveWithinSlots(orderFixture,['a','b','c'],'c','a'
 assert.equal(vm.runInContext("moveWithinSlots(orderFixture,['a','b','c'],'a','c',true).map(i=>i.id).join(',')",context),'b,hidden,c,other-folder,a');
 assert.equal(vm.runInContext("orderFixture.map(i=>i.id).join(',')",context),'a,hidden,b,other-folder,c');
 assert.equal(vm.runInContext("moveWithinSlots(orderFixture,['a','b','c'],'a','hidden')===orderFixture",context),true);
+assert.equal(vm.runInContext('separatesCompleted(data.notes[0])',context),true);
+assert.doesNotMatch(vm.runInContext('editorHTML({...data.notes[0],movesCompleted:false})',context),/Выполнено ·/);
+assert.match(vm.runInContext('editorHTML({...data.notes[0],movesCompleted:false})',context),/Первый пункт[\s\S]*Второй пункт/);
+assert.match(vm.runInContext('notePreview({...data.notes[0],movesCompleted:false})',context),/preview-box checked/);
+vm.runInContext('data.notes[0].movesCompleted=false',context);
+assert.equal(vm.runInContext('backup().data.notes[0].movesCompleted',context),false);
 assert.equal(vm.runInContext("date(86400).includes('2001')",context),true);
 console.log('Backup format, attachments and Foundation date: OK');
