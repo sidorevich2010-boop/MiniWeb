@@ -12,6 +12,7 @@ const empty = () => ({folders:[], notes:[]});
 let data = empty(), meta = {dark:false, pin:null, failedPIN:0, blockedUntil:0}, route = {page:'folders'};
 let unlocked = false, recording = null, recordChunks = [], openRow = null, saveQueue = Promise.resolve(), noticeTimer, saveTimer;
 let reorderDrag = null, dragClickUntil = 0;
+let noteGridObserver = null, noteGridFrame = null;
 
 function notify(message) { const n = $('#notice'); n.textContent = message; n.classList.add('show'); clearTimeout(noticeTimer); noticeTimer = setTimeout(() => n.classList.remove('show'), 3500); }
 function dbOpen() { return new Promise((resolve,reject) => { const r = indexedDB.open('personal-notes-mini',1); r.onupgradeneeded = () => r.result.createObjectStore('app'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); }); }
@@ -66,6 +67,8 @@ function editorHTML(n, setup = false) {
 function settingsHTML() { return `<div class="panel"><div class="switch-line"><label for="theme-toggle">Тёмная тема</label><input id="theme-toggle" type="checkbox" ${meta.dark?'checked':''}></div><div class="switch-line"><span>Код скрытых заметок</span><button class="pill" data-action="pin-change">${meta.pin?'Сменить':'Создать'}</button></div></div><div class="panel"><h2>Резервная копия</h2><p class="hint">Заметки хранятся в памяти браузера Telegram на этом устройстве. Экспортируйте JSON, чтобы перенести их на другое устройство или восстановить после очистки данных.</p><div class="toolbar"><button class="primary" data-action="export">Скачать JSON</button><label class="pill">Загрузить JSON<input id="backup-file" type="file" accept="application/json,.json" hidden></label></div><p class="small">Копия содержит текст, скрытые заметки, фото и записи без шифрования. Держите её в защищённом месте.</p></div><div class="panel"><p class="small">Для Google Календаря заметка открывает форму создания события. Автоматическая синхронизация Google Drive в этой версии ещё не подключена.</p></div>`; }
 function render() {
   cancelReorder();
+  noteGridObserver?.disconnect();noteGridObserver=null;
+  if(noteGridFrame!==null){cancelAnimationFrame(noteGridFrame);noteGridFrame=null;}
   const f = data.folders.find(x => x.id === route.id), n = currentNote();
   if ((route.page === 'folder' && !f) || (['note','note-setup'].includes(route.page) && !n) || (route.page === 'hidden' && !unlocked)) route = {page:'folders'};
   const title = route.page==='folders'?'Мои заметки':route.page==='folder'?f.name:route.page==='hidden'?'Скрытые заметки':route.page==='note'?(n.title||'Заметка'):route.page==='note-setup'?'Редактирование':'Настройки';
@@ -74,7 +77,22 @@ function render() {
   $('#new-note').hidden = route.page!=='folder';
   view.classList.toggle('note-view',['note','note-setup'].includes(route.page));
   view.innerHTML = route.page==='folders'?foldersHTML():route.page==='folder'?notesHTML(route.id):route.page==='hidden'?notesHTML(null):route.page==='note'||route.page==='note-setup'?editorHTML(n,route.page==='note-setup'):settingsHTML();
-  theme(); bindSwipes();
+  theme(); bindSwipes(); fitNoteCards();
+}
+
+function fitNoteCards() {
+  const cards=[...view.querySelectorAll('.note-tile')];
+  if(!cards.length)return;
+  const resize=()=>{
+    noteGridFrame=null;
+    const spans=cards.map(card=>Math.ceil(card.querySelector('.row-main').getBoundingClientRect().height+10));
+    cards.forEach((card,index)=>{card.style.gridRowEnd=`span ${spans[index]}`;});
+  };
+  resize();
+  if(typeof ResizeObserver!=='undefined'){
+    noteGridObserver=new ResizeObserver(()=>{if(noteGridFrame===null)noteGridFrame=requestAnimationFrame(resize);});
+    cards.forEach(card=>noteGridObserver.observe(card.querySelector('.row-main')));
+  }
 }
 
 function modal(title, body, actions) {
