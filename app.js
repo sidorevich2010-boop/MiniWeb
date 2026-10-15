@@ -49,7 +49,7 @@ function notePreview(n) {
 function notesHTML(folderID) {
   const hidden = folderID == null;
   const notes = data.notes.filter(n => hidden ? n.hidden : n.folderID === folderID && !n.hidden);
-  return `<div class="section-title">${hidden ? 'Защищённые заметки' : 'Заметки'}</div><div class="note-grid">${notes.map(n => row(n.id, '', n.title || 'Без названия', notePreview(n), [{action:'hide', label:hidden?'Показать':'Скрыть', icon:hidden?showIcon:hideIcon}, deleteAction], 'note')).join('') || '<div class="empty">Здесь пока нет заметок</div>'}</div>${!hidden ? '<div class="toolbar"><button class="primary" data-action="new-text">＋ Текстовая заметка</button><button class="pill" data-action="new-list">☷ Список</button></div>' : ''}`;
+  return `<div class="section-title">${hidden ? 'Защищённые заметки' : 'Заметки'}</div><div class="note-grid">${notes.map(n => row(n.id, '', n.title || 'Без названия', notePreview(n), [{action:'hide', label:hidden?'Показать':'Скрыть', icon:hidden?showIcon:hideIcon}, deleteAction], 'note')).join('') || '<div class="empty">Здесь пока нет заметок</div>'}</div>`;
 }
 function itemHTML(item,index,number,checkbox) { return `<div class="task-row ${item.isDone && checkbox?'done':''}" data-item="${esc(item.id)}">${checkbox ? `<input type="checkbox" data-check="${esc(item.id)}" ${item.isDone?'checked':''} aria-label="Отметить выполненным">` : ''}${number ? `<span class="task-number">${index+1}.</span>`:''}<input type="text" class="task-input" data-item-text="${esc(item.id)}" value="${esc(item.text)}" placeholder="Пункт списка"><button class="task-remove" data-remove-item="${esc(item.id)}" aria-label="Удалить пункт">×</button></div>`; }
 function editorHTML(n, setup = false) {
@@ -69,6 +69,7 @@ function render() {
   const title = route.page==='folders'?'Мои заметки':route.page==='folder'?f.name:route.page==='hidden'?'Скрытые заметки':route.page==='note'?(n.title||'Заметка'):route.page==='note-setup'?'Редактирование':'Настройки';
   $('#title').textContent = title; $('#back').hidden = route.page==='folders'; $('#settings').hidden = ['settings','note','note-setup'].includes(route.page);
   $('#note-options').hidden = route.page!=='note'; $('#done').hidden = route.page!=='note-setup';
+  $('#new-note').hidden = route.page!=='folder';
   view.classList.toggle('note-view',['note','note-setup'].includes(route.page));
   view.innerHTML = route.page==='folders'?foldersHTML():route.page==='folder'?notesHTML(route.id):route.page==='hidden'?notesHTML(null):route.page==='note'||route.page==='note-setup'?editorHTML(n,route.page==='note-setup'):settingsHTML();
   theme(); bindSwipes();
@@ -136,6 +137,12 @@ view.addEventListener('change',async e=>{const n=currentNote();if(e.target.id===
 view.addEventListener('keydown',e=>{if(e.key!=='Enter'||!e.target.dataset.itemText)return;e.preventDefault();const n=currentNote();if(!n)return;const index=n.items.findIndex(i=>i.id===e.target.dataset.itemText);const item={id:uuid(),text:'',isDone:false};n.items.splice(index+1,0,item);n.updatedAt=now();persist();render();$(`[data-item-text="${item.id}"]`)?.focus();});
 view.addEventListener('click',e=>{const id=e.target.dataset.removeItem,mediaID=e.target.dataset.removeMedia,n=currentNote();if(!n)return;if(id){n.items=n.items.filter(i=>i.id!==id);n.updatedAt=now();persist();render();}if(mediaID){n.media=n.media.filter(m=>m.id!==mediaID);n.updatedAt=now();persist();render();}});
 $('#settings').onclick=()=>change({page:'settings'});
+$('#new-note').onclick=async()=>{
+  if(route.page!=='folder')return;
+  const folderID=route.id;
+  const kind=await modal('Новая заметка','<p>Выберите тип заметки</p>',[{label:'Отмена',value:null},{label:'Текстовая заметка',value:'new-text'},{label:'Список',value:'new-list',primary:true}]);
+  if(route.page==='folder'&&route.id===folderID&&['new-text','new-list'].includes(kind))await action(kind);
+};
 $('#note-options').onclick=()=>{if(route.page==='note'&&currentNote())change({page:'note-setup',id:route.id});};
 $('#done').onclick=()=>{if(route.page==='note-setup'&&currentNote())change({page:'note',id:route.id});};
 $('#back').onclick=()=>{if(route.page==='note-setup'){change({page:'note',id:route.id});}else if(route.page==='note'){const n=currentNote();change(n?.hidden?{page:'hidden'}:{page:'folder',id:n?.folderID});}else change({page:'folders'});};
