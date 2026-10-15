@@ -11,6 +11,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;'
 const empty = () => ({folders:[], notes:[]});
 let data = empty(), meta = {dark:false, pin:null, failedPIN:0, blockedUntil:0}, route = {page:'folders'};
 let unlocked = false, recording = null, recordChunks = [], openRow = null, saveQueue = Promise.resolve(), noticeTimer, saveTimer;
+let reorderDrag = null, dragClickUntil = 0;
 
 function notify(message) { const n = $('#notice'); n.textContent = message; n.classList.add('show'); clearTimeout(noticeTimer); noticeTimer = setTimeout(() => n.classList.remove('show'), 3500); }
 function dbOpen() { return new Promise((resolve,reject) => { const r = indexedDB.open('personal-notes-mini',1); r.onupgradeneeded = () => r.result.createObjectStore('app'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); }); }
@@ -20,7 +21,7 @@ function persist() { const snapshot = structuredClone({data,meta}); saveQueue = 
 function flushSave() { if(saveTimer){clearTimeout(saveTimer);saveTimer=null;persist();} }
 function change(next) { flushSave(); route = next; openRow = null; if (next.page !== 'hidden' && !(['note','note-setup'].includes(next.page) && data.notes.find(n => n.id === next.id)?.hidden)) unlocked = false; render(); }
 function currentNote() { return data.notes.find(n => n.id === route.id); }
-function lock() { unlocked = false; if (route.page === 'hidden' || (['note','note-setup'].includes(route.page) && currentNote()?.hidden)) { route = {page:'folders'}; render(); } }
+function lock() { cancelReorder(); unlocked = false; if (route.page === 'hidden' || (['note','note-setup'].includes(route.page) && currentNote()?.hidden)) { route = {page:'folders'}; render(); } }
 document.addEventListener('visibilitychange', () => { if (document.hidden) { flushSave(); if (recording) stopRecording(); lock(); } });
 window.addEventListener('pagehide', () => {flushSave();lock();});
 function theme() { document.documentElement.classList.toggle('dark', !!meta.dark); try { tg?.setHeaderColor?.(meta.dark ? '#18191d' : '#f4f5f6'); tg?.setBackgroundColor?.(meta.dark ? '#18191d' : '#f4f5f6'); } catch (_) {} }
@@ -28,7 +29,7 @@ function theme() { document.documentElement.classList.toggle('dark', !!meta.dark
 function folderIcon() { return '<svg class="folder-mark" viewBox="0 0 40 32" aria-hidden="true"><path class="fold" d="M2 4Q2 1 5 1h10l3 4h17q3 0 3 3v4H2z"/><path d="M2 9h36v18q0 4-4 4H6q-4 0-4-4z"/></svg>'; }
 function row(id, icon, name, detail, actions, destination) {
   const content = destination === 'note' ? `<span class="row-name">${esc(name)}</span>${detail}` : `${icon}<span class="row-text"><span class="row-name">${esc(name)}</span></span><span class="folder-count">${esc(detail)}</span>`;
-  return `<div class="row ${destination==='note'?'note-tile':''}" data-row="${esc(id)}" style="--reveal:-${actions.length * 50 + 17}px"><div class="row-actions">${actions.map(a => `<button class="round-action ${a.danger?'danger':''}" data-action="${a.action}" data-id="${esc(id)}" aria-label="${esc(a.label)}" title="${esc(a.label)}">${a.icon}</button>`).join('')}</div><button class="row-main" data-go="${destination}" data-id="${esc(id)}">${content}</button></div>`;
+  return `<div class="row ${destination==='note'?'note-tile':''}" data-row="${esc(id)}" style="--reveal:-${actions.length * 50 + 17}px">${destination==='note'?`<button class="drag-handle note-drag" data-drag-note="${esc(id)}" aria-label="Перетащить заметку" title="Зажмите и перетащите"><span></span></button>`:''}<div class="row-actions">${actions.map(a => `<button class="round-action ${a.danger?'danger':''}" data-action="${a.action}" data-id="${esc(id)}" aria-label="${esc(a.label)}" title="${esc(a.label)}">${a.icon}</button>`).join('')}</div><button class="row-main" data-go="${destination}" data-id="${esc(id)}">${content}</button></div>`;
 }
 const trashIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5h15M9 6.5V4.7h6v1.8M7 6.5l.6 12.1c.05.8.7 1.4 1.5 1.4h5.8c.8 0 1.45-.6 1.5-1.4L17 6.5M10 10v6M14 10v6"/></svg>';
 const hideIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A10.2 10.2 0 0 1 12 5c5.7 0 9.4 5.3 9.4 7 0 .8-.8 2.3-2.2 3.7M7.2 6.2C4.3 7.6 2.6 10.6 2.6 12c0 1.7 3.7 7 9.4 7 1.3 0 2.6-.3 3.8-.8M9.3 9.3a3.8 3.8 0 0 0 5.4 5.4"/></svg>';
@@ -51,7 +52,7 @@ function notesHTML(folderID) {
   const notes = data.notes.filter(n => hidden ? n.hidden : n.folderID === folderID && !n.hidden);
   return `<div class="section-title">${hidden ? 'Защищённые заметки' : 'Заметки'}</div><div class="note-grid">${notes.map(n => row(n.id, '', n.title || 'Без названия', notePreview(n), [{action:'hide', label:hidden?'Показать':'Скрыть', icon:hidden?showIcon:hideIcon}, deleteAction], 'note')).join('') || '<div class="empty">Здесь пока нет заметок</div>'}</div>`;
 }
-function itemHTML(item,index,number,checkbox) { return `<div class="task-row ${item.isDone && checkbox?'done':''}" data-item="${esc(item.id)}">${checkbox ? `<input type="checkbox" data-check="${esc(item.id)}" ${item.isDone?'checked':''} aria-label="Отметить выполненным">` : ''}${number ? `<span class="task-number">${index+1}.</span>`:''}<input type="text" class="task-input" data-item-text="${esc(item.id)}" value="${esc(item.text)}" placeholder="Пункт списка"><button class="task-remove" data-remove-item="${esc(item.id)}" aria-label="Удалить пункт">×</button></div>`; }
+function itemHTML(item,index,number,checkbox) { return `<div class="task-row ${item.isDone && checkbox?'done':''}" data-item="${esc(item.id)}"><button class="drag-handle" data-drag-item="${esc(item.id)}" aria-label="Перетащить пункт" title="Зажмите и перетащите"><span></span></button>${checkbox ? `<input type="checkbox" data-check="${esc(item.id)}" ${item.isDone?'checked':''} aria-label="Отметить выполненным">` : ''}${number ? `<span class="task-number">${index+1}.</span>`:''}<input type="text" class="task-input" data-item-text="${esc(item.id)}" value="${esc(item.text)}" placeholder="Пункт списка"><button class="task-remove" data-remove-item="${esc(item.id)}" aria-label="Удалить пункт">×</button></div>`; }
 function editorHTML(n, setup = false) {
   const active = n.showsCheckboxes ? n.items.filter(i => !i.isDone) : n.items;
   const done = n.showsCheckboxes ? n.items.filter(i => i.isDone) : [];
@@ -64,6 +65,7 @@ function editorHTML(n, setup = false) {
 }
 function settingsHTML() { return `<div class="panel"><div class="switch-line"><label for="theme-toggle">Тёмная тема</label><input id="theme-toggle" type="checkbox" ${meta.dark?'checked':''}></div><div class="switch-line"><span>Код скрытых заметок</span><button class="pill" data-action="pin-change">${meta.pin?'Сменить':'Создать'}</button></div></div><div class="panel"><h2>Резервная копия</h2><p class="hint">Заметки хранятся в памяти браузера Telegram на этом устройстве. Экспортируйте JSON, чтобы перенести их на другое устройство или восстановить после очистки данных.</p><div class="toolbar"><button class="primary" data-action="export">Скачать JSON</button><label class="pill">Загрузить JSON<input id="backup-file" type="file" accept="application/json,.json" hidden></label></div><p class="small">Копия содержит текст, скрытые заметки, фото и записи без шифрования. Держите её в защищённом месте.</p></div><div class="panel"><p class="small">Для Google Календаря заметка открывает форму создания события. Автоматическая синхронизация Google Drive в этой версии ещё не подключена.</p></div>`; }
 function render() {
+  cancelReorder();
   const f = data.folders.find(x => x.id === route.id), n = currentNote();
   if ((route.page === 'folder' && !f) || (['note','note-setup'].includes(route.page) && !n) || (route.page === 'hidden' && !unlocked)) route = {page:'folders'};
   const title = route.page==='folders'?'Мои заметки':route.page==='folder'?f.name:route.page==='hidden'?'Скрытые заметки':route.page==='note'?(n.title||'Заметка'):route.page==='note-setup'?'Редактирование':'Настройки';
@@ -133,7 +135,7 @@ view.addEventListener('click', async e => {
   if(target==='hidden'&&await authorizeHidden())change({page:'hidden'});
 });
 view.addEventListener('input',e=>{const n=currentNote();if(!n)return;if(e.target.id==='note-title')n.title=e.target.value;if(e.target.id==='note-body')n.body=e.target.value;if(e.target.dataset.itemText){const item=n.items.find(i=>i.id===e.target.dataset.itemText);if(item)item.text=e.target.value;}n.updatedAt=now();clearTimeout(saveTimer);saveTimer=setTimeout(()=>{saveTimer=null;persist();},250);});
-view.addEventListener('change',async e=>{const n=currentNote();if(e.target.id==='theme-toggle'){meta.dark=e.target.checked;persist();theme();return;}if(e.target.id==='backup-file'){await importBackup(e.target.files[0]);return;}if(e.target.id==='photo-file'){await addPhoto(e.target.files[0]);return;}if(!n)return;if(e.target.id==='checkboxes')n.showsCheckboxes=e.target.checked;if(e.target.id==='numbers')n.showsNumbers=e.target.checked;if(e.target.dataset.check){const item=n.items.find(i=>i.id===e.target.dataset.check);if(item)item.isDone=e.target.checked;}n.updatedAt=now();persist();render();});
+view.addEventListener('change',async e=>{const n=currentNote();if(e.target.id==='theme-toggle'){meta.dark=e.target.checked;persist();theme();return;}if(e.target.id==='backup-file'){await importBackup(e.target.files[0]);return;}if(e.target.id==='photo-file'){await addPhoto(e.target.files[0]);return;}if(!n)return;if(!['checkboxes','numbers'].includes(e.target.id)&&!e.target.dataset.check)return;if(e.target.id==='checkboxes')n.showsCheckboxes=e.target.checked;if(e.target.id==='numbers')n.showsNumbers=e.target.checked;if(e.target.dataset.check){const item=n.items.find(i=>i.id===e.target.dataset.check);if(item)item.isDone=e.target.checked;}n.updatedAt=now();persist();render();});
 view.addEventListener('keydown',e=>{if(e.key!=='Enter'||!e.target.dataset.itemText)return;e.preventDefault();const n=currentNote();if(!n)return;const index=n.items.findIndex(i=>i.id===e.target.dataset.itemText);const item={id:uuid(),text:'',isDone:false};n.items.splice(index+1,0,item);n.updatedAt=now();persist();render();$(`[data-item-text="${item.id}"]`)?.focus();});
 view.addEventListener('click',e=>{const id=e.target.dataset.removeItem,mediaID=e.target.dataset.removeMedia,n=currentNote();if(!n)return;if(id){n.items=n.items.filter(i=>i.id!==id);n.updatedAt=now();persist();render();}if(mediaID){n.media=n.media.filter(m=>m.id!==mediaID);n.updatedAt=now();persist();render();}});
 $('#settings').onclick=()=>change({page:'settings'});
@@ -146,6 +148,85 @@ $('#new-note').onclick=async()=>{
 $('#note-options').onclick=()=>{if(route.page==='note'&&currentNote())change({page:'note-setup',id:route.id});};
 $('#done').onclick=()=>{if(route.page==='note-setup'&&currentNote())change({page:'note',id:route.id});};
 $('#back').onclick=()=>{if(route.page==='note-setup'){change({page:'note',id:route.id});}else if(route.page==='note'){const n=currentNote();change(n?.hidden?{page:'hidden'}:{page:'folder',id:n?.folderID});}else change({page:'folders'});};
+// Replace only the visible group's slots; unrelated folders and completed groups keep their order.
+function moveWithinSlots(list, ids, sourceID, targetID, after=false) {
+  const allowed=new Set(ids), selected=list.filter(item=>allowed.has(item.id));
+  const source=selected.find(item=>item.id===sourceID);
+  if(!source||sourceID===targetID||!selected.some(item=>item.id===targetID))return list;
+  const reordered=selected.filter(item=>item.id!==sourceID);
+  reordered.splice(reordered.findIndex(item=>item.id===targetID)+(after?1:0),0,source);
+  if(reordered.every((item,index)=>item.id===selected[index].id))return list;
+  let index=0;
+  return list.map(item=>allowed.has(item.id)?reordered[index++]:item);
+}
+function cancelReorder() {
+  const drag=reorderDrag;if(!drag)return;reorderDrag=null;
+  clearTimeout(drag.timer);if(drag.frame)cancelAnimationFrame(drag.frame);
+  drag.source.classList.remove('dragging-source');
+  drag.target?.classList.remove('drop-before','drop-after');drag.ghost?.remove();
+  try{drag.handle.releasePointerCapture(drag.pointerID);}catch(_){}
+  document.body.classList.remove('reordering');
+}
+function updateReorderTarget(drag) {
+  drag.target?.classList.remove('drop-before','drop-after');drag.target=null;
+  const hit=document.elementFromPoint(drag.x,drag.y);
+  const target=hit?.closest(drag.kind==='note'?'.note-tile':'.task-row');
+  const id=target?.dataset[drag.kind==='note'?'row':'item'];
+  if(!id||id===drag.sourceID||!drag.ids.includes(id))return;
+  const rect=target.getBoundingClientRect();
+  drag.after=drag.kind==='note'?drag.x>rect.left+rect.width/2:drag.y>rect.top+rect.height/2;
+  drag.target=target;drag.targetID=id;
+  target.classList.add(drag.after?'drop-after':'drop-before');
+}
+function activateReorder() {
+  const drag=reorderDrag;if(!drag||document.hidden)return;
+  flushSave();document.activeElement?.blur();
+  if(reorderDrag!==drag)return;
+  if(openRow){openRow.classList.remove('open');openRow=null;}
+  drag.active=true;
+  const rect=drag.source.getBoundingClientRect();
+  drag.offsetX=drag.startX-rect.left;drag.offsetY=drag.startY-rect.top;
+  drag.ghost=drag.source.cloneNode(true);drag.ghost.classList.add('drag-ghost');
+  drag.ghost.querySelectorAll('[id]').forEach(element=>element.removeAttribute('id'));
+  drag.ghost.setAttribute('aria-hidden','true');drag.ghost.inert=true;
+  drag.ghost.style.width=`${rect.width}px`;document.body.append(drag.ghost);
+  drag.source.classList.add('dragging-source');document.body.classList.add('reordering');
+  const tick=()=>{
+    if(reorderDrag!==drag)return;
+    drag.ghost.style.left=`${drag.x-drag.offsetX}px`;drag.ghost.style.top=`${drag.y-drag.offsetY}px`;
+    const edge=64;
+    if(drag.y<edge)window.scrollBy(0,-Math.ceil((edge-drag.y)/7));
+    else if(drag.y>window.innerHeight-edge)window.scrollBy(0,Math.ceil((drag.y-window.innerHeight+edge)/7));
+    updateReorderTarget(drag);drag.frame=requestAnimationFrame(tick);
+  };
+  tick();
+}
+view.addEventListener('pointerdown',e=>{
+  const handle=e.target.closest('[data-drag-note],[data-drag-item]');
+  if(!handle||e.button!==0||reorderDrag)return;
+  e.preventDefault();e.stopPropagation();
+  const kind=handle.dataset.dragNote?'note':'item', sourceID=handle.dataset.dragNote||handle.dataset.dragItem;
+  let ids;
+  if(kind==='note')ids=data.notes.filter(n=>route.page==='hidden'?n.hidden:n.folderID===route.id&&!n.hidden).map(n=>n.id);
+  else {const n=currentNote(),item=n?.items.find(i=>i.id===sourceID);if(!item)return;ids=n.items.filter(i=>!n.showsCheckboxes||i.isDone===item.isDone).map(i=>i.id);}
+  reorderDrag={kind,sourceID,ids,handle,source:handle.closest(kind==='note'?'.note-tile':'.task-row'),pointerID:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,page:route.page,routeID:route.id,active:false};
+  handle.setPointerCapture(e.pointerId);
+  reorderDrag.timer=setTimeout(activateReorder,180);
+});
+document.addEventListener('pointermove',e=>{const d=reorderDrag;if(!d||d.pointerID!==e.pointerId)return;d.x=e.clientX;d.y=e.clientY;if(d.active)e.preventDefault();},{passive:false});
+document.addEventListener('pointerup',e=>{
+  const d=reorderDrag;if(!d||d.pointerID!==e.pointerId)return;
+  d.x=e.clientX;d.y=e.clientY;if(d.active)updateReorderTarget(d);
+  const valid=d.active&&d.target&&route.page===d.page&&route.id===d.routeID;
+  if(d.active)dragClickUntil=Date.now()+400;
+  cancelReorder();
+  if(!valid)return;
+  if(d.kind==='note'){const next=moveWithinSlots(data.notes,d.ids,d.sourceID,d.targetID,d.after);if(next===data.notes)return;data.notes=next;}
+  else {const n=currentNote();if(!n)return;const next=moveWithinSlots(n.items,d.ids,d.sourceID,d.targetID,d.after);if(next===n.items)return;n.items=next;n.updatedAt=now();}
+  persist();render();
+});
+document.addEventListener('pointercancel',e=>{if(reorderDrag?.pointerID===e.pointerId)cancelReorder();});
+view.addEventListener('click',e=>{if(e.target.closest('.drag-handle')||Date.now()<dragClickUntil){e.preventDefault();e.stopPropagation();}},true);
 function bindSwipes() {
   for (const row of view.querySelectorAll('.row')) {
     let start = null, suppressClick = false, clickTimer;
@@ -161,10 +242,10 @@ function bindSwipes() {
       row.classList.toggle('open',dx<0);
       openRow=row.classList.contains('open')?row:null;
     };
-    row.addEventListener('touchstart',e=>begin(e.touches[0].clientX,e.touches[0].clientY),{passive:true});
+    row.addEventListener('touchstart',e=>{if(!e.target?.closest('.drag-handle'))begin(e.touches[0].clientX,e.touches[0].clientY);},{passive:true});
     row.addEventListener('touchend',e=>end(e.changedTouches[0].clientX,e.changedTouches[0].clientY),{passive:true});
     row.addEventListener('touchcancel',()=>{start=null;},{passive:true});
-    row.addEventListener('mousedown',e=>{if(e.button===0)begin(e.clientX,e.clientY);});
+    row.addEventListener('mousedown',e=>{if(e.button===0&&!e.target?.closest('.drag-handle'))begin(e.clientX,e.clientY);});
     row.addEventListener('mouseup',e=>end(e.clientX,e.clientY));
     row.addEventListener('click',e=>{
       if (suppressClick) {suppressClick=false;e.preventDefault();e.stopPropagation();return;}
@@ -172,7 +253,7 @@ function bindSwipes() {
         row.classList.remove('open'); openRow=null; e.preventDefault();e.stopPropagation();
       }
     },true);
-    row.addEventListener('contextmenu',e=>{e.preventDefault();if(openRow&&openRow!==row)openRow.classList.remove('open');row.classList.toggle('open');openRow=row.classList.contains('open')?row:null;});
+    row.addEventListener('contextmenu',e=>{e.preventDefault();if(e.target.closest('.drag-handle'))return;if(openRow&&openRow!==row)openRow.classList.remove('open');row.classList.toggle('open');openRow=row.classList.contains('open')?row:null;});
   }
 }
 async function init() {try{const saved=await dbRead();if(saved?.data?.folders&&saved?.data?.notes){data=saved.data;meta=saved.meta||meta;}}catch(e){notify('Хранилище недоступно. Изменения могут не сохраниться.');}render();}
