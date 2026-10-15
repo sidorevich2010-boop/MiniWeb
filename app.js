@@ -27,28 +27,40 @@ function theme() { document.documentElement.classList.toggle('dark', !!meta.dark
 
 function folderIcon() { return '<svg class="folder-mark" viewBox="0 0 40 32" aria-hidden="true"><path class="fold" d="M2 4Q2 1 5 1h10l3 4h17q3 0 3 3v4H2z"/><path d="M2 9h36v18q0 4-4 4H6q-4 0-4-4z"/></svg>'; }
 function row(id, icon, name, detail, actions, destination) {
-  const content = destination === 'note' ? `<span class="row-text"><span class="row-name">${esc(name)}</span></span>` : `${icon}<span class="row-text"><span class="row-name">${esc(name)}</span></span><span class="folder-count">${esc(detail)}</span>`;
-  return `<div class="row" data-row="${esc(id)}" style="--reveal:-${actions.length * 50 + 17}px"><div class="row-actions">${actions.map(a => `<button class="round-action ${a.danger?'danger':''}" data-action="${a.action}" data-id="${esc(id)}" aria-label="${esc(a.label)}" title="${esc(a.label)}">${a.icon}</button>`).join('')}</div><button class="row-main" data-go="${destination}" data-id="${esc(id)}">${content}</button></div>`;
+  const content = destination === 'note' ? `<span class="row-name">${esc(name)}</span>${detail}` : `${icon}<span class="row-text"><span class="row-name">${esc(name)}</span></span><span class="folder-count">${esc(detail)}</span>`;
+  return `<div class="row ${destination==='note'?'note-tile':''}" data-row="${esc(id)}" style="--reveal:-${actions.length * 50 + 17}px"><div class="row-actions">${actions.map(a => `<button class="round-action ${a.danger?'danger':''}" data-action="${a.action}" data-id="${esc(id)}" aria-label="${esc(a.label)}" title="${esc(a.label)}">${a.icon}</button>`).join('')}</div><button class="row-main" data-go="${destination}" data-id="${esc(id)}">${content}</button></div>`;
 }
-const deleteAction = {action:'delete', label:'Удалить', icon:'▤', danger:true};
+const trashIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5h15M9 6.5V4.7h6v1.8M7 6.5l.6 12.1c.05.8.7 1.4 1.5 1.4h5.8c.8 0 1.45-.6 1.5-1.4L17 6.5M10 10v6M14 10v6"/></svg>';
+const hideIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 5.1A10.2 10.2 0 0 1 12 5c5.7 0 9.4 5.3 9.4 7 0 .8-.8 2.3-2.2 3.7M7.2 6.2C4.3 7.6 2.6 10.6 2.6 12c0 1.7 3.7 7 9.4 7 1.3 0 2.6-.3 3.8-.8M9.3 9.3a3.8 3.8 0 0 0 5.4 5.4"/></svg>';
+const showIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.6 12c0-1.7 3.7-7 9.4-7s9.4 5.3 9.4 7-3.7 7-9.4 7-9.4-5.3-9.4-7z"/><circle cx="12" cy="12" r="3.5"/></svg>';
+const deleteAction = {action:'delete', label:'Удалить', icon:trashIcon, danger:true};
 function foldersHTML() {
   const folders = data.folders.map(f => row(f.id,folderIcon(), f.name, `${data.notes.filter(n => n.folderID === f.id && !n.hidden).length} заметок`, [deleteAction], 'folder')).join('');
   return `<div class="archive-bar"><button class="archive-entry" data-go="hidden"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5.5" y="10" width="13" height="10.5" rx="3"/><path d="M8.5 10V7a3.5 3.5 0 0 1 7 0v3"/><path d="M12 14.5v2"/></svg><span>Скрытые заметки</span></button></div><div class="section-title">Папки</div>${folders || '<div class="empty">Здесь появятся ваши папки</div>'}<div class="toolbar"><button class="primary" data-action="new-folder">＋ Создать папку</button></div>`;
 }
+function notePreview(n) {
+  if (n.kind === 'text') return n.body.trim() ? `<span class="note-preview note-preview-text">${esc(n.body.trim().slice(0,280))}</span>` : '';
+  const active = n.showsCheckboxes ? n.items.filter(item => !item.isDone) : n.items;
+  const shown = active.slice(0, 6).map(item => `<span class="preview-item">${n.showsCheckboxes?'<span class="preview-box" aria-hidden="true"></span>':''}${n.showsNumbers?`<span class="preview-number">${n.items.indexOf(item)+1}.</span>`:''}<span>${esc(item.text || '…')}</span></span>`).join('');
+  const remainder = active.length - 6;
+  const completed = n.showsCheckboxes ? n.items.length - active.length : 0;
+  return `<span class="note-preview">${shown}${remainder>0?`<span class="preview-extra">Ещё ${remainder} пунктов</span>`:''}${completed>0?`<span class="preview-extra">Выполнено: ${completed}</span>`:''}</span>`;
+}
 function notesHTML(folderID) {
   const hidden = folderID == null;
   const notes = data.notes.filter(n => hidden ? n.hidden : n.folderID === folderID && !n.hidden);
-  return `<div class="section-title">${hidden ? 'Защищённые заметки' : 'Заметки'}</div>${notes.map(n => row(n.id, '', n.title || 'Без названия', '', [{action:'hide', label:hidden?'Показать':'Скрыть', icon:hidden?'◉':'◉'}, deleteAction], 'note')).join('') || '<div class="empty">Здесь пока нет заметок</div>'}${!hidden ? '<div class="toolbar"><button class="primary" data-action="new-text">＋ Текстовая заметка</button><button class="pill" data-action="new-list">☷ Список</button></div>' : ''}`;
+  return `<div class="section-title">${hidden ? 'Защищённые заметки' : 'Заметки'}</div><div class="note-grid">${notes.map(n => row(n.id, '', n.title || 'Без названия', notePreview(n), [{action:'hide', label:hidden?'Показать':'Скрыть', icon:hidden?showIcon:hideIcon}, deleteAction], 'note')).join('') || '<div class="empty">Здесь пока нет заметок</div>'}</div>${!hidden ? '<div class="toolbar"><button class="primary" data-action="new-text">＋ Текстовая заметка</button><button class="pill" data-action="new-list">☷ Список</button></div>' : ''}`;
 }
 function itemHTML(item,index,number,checkbox) { return `<div class="task-row ${item.isDone && checkbox?'done':''}" data-item="${esc(item.id)}">${checkbox ? `<input type="checkbox" data-check="${esc(item.id)}" ${item.isDone?'checked':''} aria-label="Отметить выполненным">` : ''}${number ? `<span class="task-number">${index+1}.</span>`:''}<input type="text" class="task-input" data-item-text="${esc(item.id)}" value="${esc(item.text)}" placeholder="Пункт списка"><button class="task-remove" data-remove-item="${esc(item.id)}" aria-label="Удалить пункт">×</button></div>`; }
 function editorHTML(n, setup = false) {
   const active = n.showsCheckboxes ? n.items.filter(i => !i.isDone) : n.items;
   const done = n.showsCheckboxes ? n.items.filter(i => i.isDone) : [];
   const indices = new Map(n.items.map((item,index) => [item.id,index]));
-  const options = setup && n.kind === 'list' ? `<div class="setup-panel"><div class="section-title">Настройки списка</div><p class="setup-hint">Выберите, как показывать пункты. Позже это можно изменить через шестерёнку.</p><div class="switch-line"><label for="checkboxes">Галочки</label><input id="checkboxes" type="checkbox" ${n.showsCheckboxes?'checked':''}></div><div class="switch-line"><label for="numbers">Нумерация</label><input id="numbers" type="checkbox" ${n.showsNumbers?'checked':''}></div></div>` : '';
+  const listOptions = n.kind === 'list' ? `<div class="section-title">Настройки списка</div><p class="setup-hint">Выберите, как показывать пункты. Позже это можно изменить через шестерёнку.</p><div class="switch-line"><label for="checkboxes">Галочки</label><input id="checkboxes" type="checkbox" ${n.showsCheckboxes?'checked':''}></div><div class="switch-line"><label for="numbers">Нумерация</label><input id="numbers" type="checkbox" ${n.showsNumbers?'checked':''}></div>` : '';
+  const options = setup ? `<div class="setup-panel">${listOptions}<div class="toolbar"><button class="quiet" data-action="calendar">Добавить в Google Календарь</button></div></div>` : '';
   const items = `<div class="section-title">Пункты</div>${active.map(i => itemHTML(i,indices.get(i.id),n.showsNumbers,n.showsCheckboxes)).join('')}<button class="quiet" data-action="add-item">＋ Пункт</button>${done.length ? `<div class="section-title">Выполнено · ${done.length}</div>${done.map(i => itemHTML(i,indices.get(i.id),n.showsNumbers,n.showsCheckboxes)).join('')}` : ''}`;
   const titleField = setup ? `<label class="field"><span>Название</span><input type="text" id="note-title" value="${esc(n.title)}" placeholder="Название заметки"></label>` : '';
-  return `${options}<div class="editor-card">${titleField}${n.kind === 'text' ? `<label class="field"><span>Текст</span><textarea id="note-body" placeholder="Введите текст">${esc(n.body)}</textarea></label>` : items}</div><div class="panel"><div class="meta">Создано: ${date(n.createdAt)}</div><div class="meta">Изменено: ${date(n.updatedAt)}</div><div class="toolbar"><button class="quiet" data-action="calendar">Добавить в Google Календарь</button></div></div>${setup ? '<div class="toolbar"><button class="primary" data-action="finish-setup">Готово</button></div>' : ''}`;
+  return `${options}<div class="editor-card">${titleField}${n.kind === 'text' ? `<label class="field"><span>Текст</span><textarea id="note-body" placeholder="Введите текст">${esc(n.body)}</textarea></label>` : items}</div>${setup ? '<div class="toolbar"><button class="primary" data-action="finish-setup">Готово</button></div>' : ''}<div class="note-dates"><span>Создано: ${date(n.createdAt)}</span><span>Изменено: ${date(n.updatedAt)}</span></div>`;
 }
 function settingsHTML() { return `<div class="panel"><div class="switch-line"><label for="theme-toggle">Тёмная тема</label><input id="theme-toggle" type="checkbox" ${meta.dark?'checked':''}></div><div class="switch-line"><span>Код скрытых заметок</span><button class="pill" data-action="pin-change">${meta.pin?'Сменить':'Создать'}</button></div></div><div class="panel"><h2>Резервная копия</h2><p class="hint">Заметки хранятся в памяти браузера Telegram на этом устройстве. Экспортируйте JSON, чтобы перенести их на другое устройство или восстановить после очистки данных.</p><div class="toolbar"><button class="primary" data-action="export">Скачать JSON</button><label class="pill">Загрузить JSON<input id="backup-file" type="file" accept="application/json,.json" hidden></label></div><p class="small">Копия содержит текст, скрытые заметки, фото и записи без шифрования. Держите её в защищённом месте.</p></div><div class="panel"><p class="small">Для Google Календаря заметка открывает форму создания события. Автоматическая синхронизация Google Drive в этой версии ещё не подключена.</p></div>`; }
 function render() {
@@ -57,6 +69,7 @@ function render() {
   const title = route.page==='folders'?'Мои заметки':route.page==='folder'?f.name:route.page==='hidden'?'Скрытые заметки':route.page==='note'?(n.title||'Заметка'):route.page==='note-setup'?'Редактирование':'Настройки';
   $('#title').textContent = title; $('#back').hidden = route.page==='folders'; $('#settings').hidden = ['settings','note','note-setup'].includes(route.page);
   $('#note-options').hidden = route.page!=='note'; $('#done').hidden = route.page!=='note-setup';
+  view.classList.toggle('note-view',['note','note-setup'].includes(route.page));
   view.innerHTML = route.page==='folders'?foldersHTML():route.page==='folder'?notesHTML(route.id):route.page==='hidden'?notesHTML(null):route.page==='note'||route.page==='note-setup'?editorHTML(n,route.page==='note-setup'):settingsHTML();
   theme(); bindSwipes();
 }
@@ -126,6 +139,34 @@ $('#settings').onclick=()=>change({page:'settings'});
 $('#note-options').onclick=()=>{if(route.page==='note'&&currentNote())change({page:'note-setup',id:route.id});};
 $('#done').onclick=()=>{if(route.page==='note-setup'&&currentNote())change({page:'note',id:route.id});};
 $('#back').onclick=()=>{if(route.page==='note-setup'){change({page:'note',id:route.id});}else if(route.page==='note'){const n=currentNote();change(n?.hidden?{page:'hidden'}:{page:'folder',id:n?.folderID});}else change({page:'folders'});};
-function bindSwipes() { for(const row of view.querySelectorAll('.row')){let startX=0,startY=0;row.addEventListener('touchstart',e=>{startX=e.touches[0].clientX;startY=e.touches[0].clientY;},{passive:true});row.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-startX,dy=e.changedTouches[0].clientY-startY;if(Math.abs(dx)<35||Math.abs(dx)<Math.abs(dy)*1.3)return;if(openRow&&openRow!==row)openRow.classList.remove('open');row.classList.toggle('open',dx<0);openRow=row.classList.contains('open')?row:null;},{passive:true});row.addEventListener('contextmenu',e=>{e.preventDefault();if(openRow&&openRow!==row)openRow.classList.remove('open');row.classList.toggle('open');openRow=row.classList.contains('open')?row:null;});} }
+function bindSwipes() {
+  for (const row of view.querySelectorAll('.row')) {
+    let start = null, suppressClick = false, clickTimer;
+    const begin = (x,y) => { start = {x,y}; };
+    const end = (x,y) => {
+      if (!start) return;
+      const dx=x-start.x, dy=y-start.y; start=null;
+      if (Math.abs(dx)<32 || Math.abs(dx)<Math.abs(dy)*1.25) return;
+      suppressClick=true;
+      clearTimeout(clickTimer);
+      clickTimer=setTimeout(()=>{suppressClick=false;},350);
+      if (openRow && openRow!==row) openRow.classList.remove('open');
+      row.classList.toggle('open',dx<0);
+      openRow=row.classList.contains('open')?row:null;
+    };
+    row.addEventListener('touchstart',e=>begin(e.touches[0].clientX,e.touches[0].clientY),{passive:true});
+    row.addEventListener('touchend',e=>end(e.changedTouches[0].clientX,e.changedTouches[0].clientY),{passive:true});
+    row.addEventListener('touchcancel',()=>{start=null;},{passive:true});
+    row.addEventListener('mousedown',e=>{if(e.button===0)begin(e.clientX,e.clientY);});
+    row.addEventListener('mouseup',e=>end(e.clientX,e.clientY));
+    row.addEventListener('click',e=>{
+      if (suppressClick) {suppressClick=false;e.preventDefault();e.stopPropagation();return;}
+      if (row.classList.contains('open') && e.target.closest('.row-main')) {
+        row.classList.remove('open'); openRow=null; e.preventDefault();e.stopPropagation();
+      }
+    },true);
+    row.addEventListener('contextmenu',e=>{e.preventDefault();if(openRow&&openRow!==row)openRow.classList.remove('open');row.classList.toggle('open');openRow=row.classList.contains('open')?row:null;});
+  }
+}
 async function init() {try{const saved=await dbRead();if(saved?.data?.folders&&saved?.data?.notes){data=saved.data;meta=saved.meta||meta;}}catch(e){notify('Хранилище недоступно. Изменения могут не сохраниться.');}render();}
 init();
