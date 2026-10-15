@@ -1,0 +1,36 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const path = require('node:path');
+
+const app = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8').replace(/\binit\(\);\s*$/, '');
+const elements = new Map();
+const element = key => { if (!elements.has(key)) elements.set(key, {textContent:'',innerHTML:'',hidden:false,style:{},classList:{add(){},remove(){},toggle(){}},addEventListener(){},querySelectorAll(){return [];},set onclick(value){this.handler=value;},get onclick(){return this.handler;}}); return elements.get(key); };
+const document = {querySelector:element,addEventListener(){},documentElement:{classList:{toggle(){}}}};
+const context = vm.createContext({document,window:{Telegram:null,addEventListener(){}},crypto:require('node:crypto').webcrypto,URL,Date,TextEncoder,console,setTimeout,clearTimeout,structuredClone});
+vm.runInContext(app,context);
+
+const fixture = JSON.parse(fs.readFileSync(path.join(__dirname,'android-backup.json'),'utf8'));
+context.fixture = fixture;
+assert.equal(vm.runInContext('validBackup(fixture).size',context),1);
+assert.throws(() => vm.runInContext('validBackup({...fixture,attachments:[]})',context),/вложения/i);
+assert.throws(() => vm.runInContext('validBackup({...fixture,formatVersion:2})',context),/формат/i);
+assert.throws(() => vm.runInContext("validBackup({...fixture,data:{...fixture.data,notes:[{...fixture.data.notes[0],media:[{...fixture.data.notes[0].media[0],filename:'../../private.jpg'}]}]}})",context),/вложения/i);
+vm.runInContext('data={folders:fixture.data.folders,notes:fixture.data.notes.map(n=>({...n,media:n.media.map(m=>({...m,contents:fixture.attachments[0].contents,mime:"image/jpeg"}))}))}',context);
+assert.equal(vm.runInContext('validBackup(backup()).size',context),1);
+assert.equal(vm.runInContext('backup().data.notes[0].media[0].contents',context),undefined);
+assert.match(vm.runInContext('editorHTML(data.notes[0],true)',context),/id="checkboxes"/);
+assert.match(vm.runInContext('editorHTML(data.notes[0],true)',context),/Готово/);
+assert.doesNotMatch(vm.runInContext('editorHTML(data.notes[0],false)',context),/id="checkboxes"|id="numbers"|Настройки списка/);
+assert.match(vm.runInContext('editorHTML(data.notes[0],false)',context),/add-item/);
+vm.runInContext('route={page:"note-setup",id:data.notes[0].id};render()',context);
+assert.equal(element('#done').hidden,false);
+assert.equal(element('#note-options').hidden,true);
+element('#done').handler();
+assert.equal(element('#done').hidden,true);
+assert.equal(element('#note-options').hidden,false);
+assert.doesNotMatch(element('#view').innerHTML,/Настройки списка/);
+element('#note-options').handler();
+assert.match(element('#view').innerHTML,/Настройки списка/);
+assert.equal(vm.runInContext("date(86400).includes('2001')",context),true);
+console.log('Backup format, attachments and Foundation date: OK');

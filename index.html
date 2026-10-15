@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#22252a">
+  <meta name="description" content="Личные заметки в Telegram">
+  <title>Мои заметки</title>
+  <link rel="icon" type="image/png" href="./assets/icon.png">
+  <link rel="stylesheet" href="./style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar"><button id="back" class="icon-button" aria-label="Назад" hidden>‹</button><div><div class="eyebrow">PERSONAL NOTES</div><h1 id="title">Мои заметки</h1></div><button id="note-options" class="icon-button gear-button" aria-label="Настройки заметки" title="Настройки заметки" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 2.8h3l.45 2.04c.6.19 1.17.43 1.68.72l1.76-1.13 2.12 2.12-1.13 1.76c.29.51.53 1.08.72 1.68l2.04.45v3l-2.04.45c-.19.6-.43 1.17-.72 1.68l1.13 1.76-2.12 2.12-1.76-1.13c-.51.29-1.08.53-1.68.72l-.45 2.04h-3l-.45-2.04c-.6-.19-1.17-.43-1.68-.72l-1.76 1.13-2.12-2.12 1.13-1.76c-.29-.51-.53-1.08-.72-1.68l-2.04-.45v-3l2.04-.45c.19-.6.43-1.17.72-1.68L4.49 6.55l2.12-2.12 1.76 1.13c.51-.29 1.08-.53 1.68-.72z"/><circle cx="12" cy="12" r="3.1"/></svg></button><button id="done" class="done-button" hidden>Готово</button><button id="settings" class="icon-button" aria-label="Общие настройки">⚙</button></header>
+    <main id="view"></main>
+    <div id="notice" role="status" aria-live="polite"></div>
+  </div>
+  <div id="dialog" class="modal" hidden><div class="scrim" data-close></div><div class="sheet" role="dialog" aria-modal="true"><h2 id="dialog-title"></h2><div id="dialog-body"></div><div id="dialog-actions"></div></div></div>
+</body>
+</html>
